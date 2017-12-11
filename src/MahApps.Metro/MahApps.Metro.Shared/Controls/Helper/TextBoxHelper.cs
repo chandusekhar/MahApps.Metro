@@ -12,9 +12,26 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Windows.Data;
 using JetBrains.Annotations;
+using MahApps.Metro.Behaviours;
 
 namespace MahApps.Metro.Controls
 {
+    internal enum SpellingResourceKeyId
+    {
+        SuggestionMenuItemStyle,
+        IgnoreAllMenuItemStyle,
+        NoSuggestionsMenuItemStyle,
+        SeparatorStyle,
+    }
+
+    public static class Spelling
+    {
+        public static ResourceKey SuggestionMenuItemStyleKey { get; } = new ComponentResourceKey(typeof(Spelling), SpellingResourceKeyId.SuggestionMenuItemStyle);
+        public static ResourceKey IgnoreAllMenuItemStyleKey { get; } = new ComponentResourceKey(typeof(Spelling), SpellingResourceKeyId.IgnoreAllMenuItemStyle);
+        public static ResourceKey NoSuggestionsMenuItemStyleKey { get; } = new ComponentResourceKey(typeof(Spelling), SpellingResourceKeyId.NoSuggestionsMenuItemStyle);
+        public static ResourceKey SeparatorStyleKey { get; } = new ComponentResourceKey(typeof(Spelling), SpellingResourceKeyId.SeparatorStyle);
+    }
+
     /// <summary>
     /// A helper class that provides various attached properties for the TextBox control.
     /// </summary>
@@ -25,6 +42,9 @@ namespace MahApps.Metro.Controls
     {
         public static readonly DependencyProperty IsMonitoringProperty = DependencyProperty.RegisterAttached("IsMonitoring", typeof(bool), typeof(TextBoxHelper), new UIPropertyMetadata(false, OnIsMonitoringChanged));
         public static readonly DependencyProperty WatermarkProperty = DependencyProperty.RegisterAttached("Watermark", typeof(string), typeof(TextBoxHelper), new UIPropertyMetadata(string.Empty));
+        public static readonly DependencyProperty WatermarkAlignmentProperty = DependencyProperty.RegisterAttached("WatermarkAlignment", typeof(TextAlignment), typeof(TextBoxHelper), new FrameworkPropertyMetadata(TextAlignment.Left, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.Inherits));
+        public static readonly DependencyProperty WatermarkTrimmingProperty = DependencyProperty.RegisterAttached("WatermarkTrimming", typeof(TextTrimming), typeof(TextBoxHelper), new FrameworkPropertyMetadata(TextTrimming.None, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender));
+        public static readonly DependencyProperty WatermarkWrappingProperty = DependencyProperty.RegisterAttached("WatermarkWrapping", typeof(TextWrapping), typeof(TextBoxHelper), new FrameworkPropertyMetadata(TextWrapping.NoWrap, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender));
         public static readonly DependencyProperty UseFloatingWatermarkProperty = DependencyProperty.RegisterAttached("UseFloatingWatermark", typeof(bool), typeof(TextBoxHelper), new FrameworkPropertyMetadata(false, ButtonCommandOrClearTextChanged));
         public static readonly DependencyProperty TextLengthProperty = DependencyProperty.RegisterAttached("TextLength", typeof(int), typeof(TextBoxHelper), new UIPropertyMetadata(0));
         public static readonly DependencyProperty ClearTextButtonProperty = DependencyProperty.RegisterAttached("ClearTextButton", typeof(bool), typeof(TextBoxHelper), new FrameworkPropertyMetadata(false, ButtonCommandOrClearTextChanged));
@@ -52,7 +72,7 @@ namespace MahApps.Metro.Controls
 
         public static readonly DependencyProperty HasTextProperty = DependencyProperty.RegisterAttached("HasText", typeof (bool), typeof (TextBoxHelper), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsArrange | FrameworkPropertyMetadataOptions.AffectsRender));
 
-        public static readonly DependencyProperty IsSpellCheckContextMenuEnabledProperty = DependencyProperty.RegisterAttached("IsSpellCheckContextMenuEnabled", typeof(bool), typeof(TextBoxHelper), new FrameworkPropertyMetadata(false, UseSpellCheckContextMenuChanged));
+        public static readonly DependencyProperty IsSpellCheckContextMenuEnabledProperty = DependencyProperty.RegisterAttached("IsSpellCheckContextMenuEnabled", typeof(bool), typeof(TextBoxHelper), new FrameworkPropertyMetadata(default(bool), IsSpellCheckContextMenuEnabledChanged));
 
         /// <summary>
         /// This property can be used to retrieve the watermark using the <see cref="DisplayAttribute"/> of bound property.
@@ -67,6 +87,7 @@ namespace MahApps.Metro.Controls
                                                                                                         { typeof(TextBox), TextBox.TextProperty },
                                                                                                         { typeof(ComboBox), Selector.SelectedItemProperty },
                                                                                                         { typeof(NumericUpDown), NumericUpDown.ValueProperty },
+                                                                                                        { typeof(HotKeyBox), HotKeyBox.HotKeyProperty },
                                                                                                         { typeof(DatePicker), DatePicker.SelectedDateProperty },
                                                                                                         { typeof(TimePicker), TimePickerBase.SelectedTimeProperty },
                                                                                                         { typeof(DateTimePicker), DateTimePicker.SelectedDateProperty }
@@ -94,6 +115,7 @@ namespace MahApps.Metro.Controls
         [AttachedPropertyBrowsableForType(typeof(DatePicker))]
         [AttachedPropertyBrowsableForType(typeof(TimePickerBase))]
         [AttachedPropertyBrowsableForType(typeof(NumericUpDown))]
+        [AttachedPropertyBrowsableForType(typeof(HotKeyBox))]
         public static bool GetAutoWatermark(DependencyObject element)
         {
             return (bool)element.GetValue(AutoWatermarkProperty);
@@ -235,7 +257,7 @@ namespace MahApps.Metro.Controls
         }
 #endif
 
-        private static void UseSpellCheckContextMenuChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        private static void IsSpellCheckContextMenuEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var tb = d as TextBoxBase;
             if (null == tb)
@@ -243,68 +265,121 @@ namespace MahApps.Metro.Controls
                 throw new InvalidOperationException("The property 'IsSpellCheckContextMenuEnabled' may only be set on TextBoxBase elements.");
             }
 
-            if ((bool)e.NewValue) {
-                // set the spell check to true
-                tb.SetValue(SpellCheck.IsEnabledProperty, true);
-                // override pre defined context menu
-                tb.ContextMenu = GetDefaultTextBoxBaseContextMenu();
-                tb.ContextMenuOpening += TextBoxBaseContextMenuOpening;
-            }
-            else
+            if (e.OldValue != e.NewValue)
             {
-                tb.SetValue(SpellCheck.IsEnabledProperty, false);
-                tb.ContextMenu = GetDefaultTextBoxBaseContextMenu();
-                tb.ContextMenuOpening -= TextBoxBaseContextMenuOpening;
+                tb.SetValue(SpellCheck.IsEnabledProperty, (bool)e.NewValue);
+                if ((bool)e.NewValue)
+                {
+                    tb.ContextMenuOpening += TextBoxBaseContextMenuOpening;
+                    tb.LostFocus += TextBoxBaseLostFocus;
+                    tb.ContextMenuClosing += TextBoxBaseContextMenuClosing;
+                }
+                else
+                {
+                    tb.ContextMenuOpening -= TextBoxBaseContextMenuOpening;
+                    tb.LostFocus -= TextBoxBaseLostFocus;
+                    tb.ContextMenuClosing -= TextBoxBaseContextMenuClosing;
+                }
             }
+        }
+
+        private static void TextBoxBaseLostFocus(object sender, RoutedEventArgs e)
+        {
+            RemoveSpellCheckMenuItems((sender as FrameworkElement)?.ContextMenu);
+        }
+
+        private static void TextBoxBaseContextMenuClosing(object sender, ContextMenuEventArgs e)
+        {
+            RemoveSpellCheckMenuItems((sender as FrameworkElement)?.ContextMenu);
         }
 
         private static void TextBoxBaseContextMenuOpening(object sender, ContextMenuEventArgs e)
         {
             var tbBase = (TextBoxBase)sender;
+            var contextMenu = tbBase.ContextMenu;
+            if (contextMenu == null)
+            {
+                return;
+            }
+
+            RemoveSpellCheckMenuItems(contextMenu);
+
+            if (!SpellCheck.GetIsEnabled(tbBase))
+            {
+                return;
+            }
+
+            var itemIndex = 0;
             var textBox = tbBase as TextBox;
             var richTextBox = tbBase as RichTextBox;
-
-            tbBase.ContextMenu = GetDefaultTextBoxBaseContextMenu();
-
-            var cmdIndex = 0;
-            var spellingError = textBox != null
-                ? textBox.GetSpellingError(textBox.CaretIndex)
-                : (richTextBox != null
-                    ? richTextBox.GetSpellingError(richTextBox.CaretPosition)
-                    : null);
-            if (spellingError != null) {
-                var suggestions = spellingError.Suggestions;
-                if (suggestions.Any()) {
-                    foreach (var suggestion in suggestions) {
-                        var mi = new MenuItem();
-                        mi.Header = suggestion;
-                        mi.FontWeight = FontWeights.Bold;
-                        mi.Command = EditingCommands.CorrectSpellingError;
-                        mi.CommandParameter = suggestion;
-                        mi.CommandTarget = tbBase;
-                        mi.SetResourceReference(FrameworkElement.StyleProperty, "MetroMenuItem");
-                        tbBase.ContextMenu.Items.Insert(cmdIndex, mi);
-                        cmdIndex++;
+            var spellingError = textBox != null ? textBox.GetSpellingError(textBox.CaretIndex) : richTextBox?.GetSpellingError(richTextBox.CaretPosition);
+            if (spellingError != null)
+            {
+                var spellingSuggestionStyle = contextMenu.TryFindResource(Spelling.SuggestionMenuItemStyleKey) as Style;
+                var suggestions = spellingError.Suggestions.ToList();
+                if (suggestions.Any())
+                {
+                    foreach (var suggestion in suggestions)
+                    {
+                        var mi = new MenuItem
+                                 {
+                                     Command = EditingCommands.CorrectSpellingError,
+                                     CommandParameter = suggestion,
+                                     CommandTarget = tbBase,
+                                     Style = spellingSuggestionStyle,
+                                     Tag = typeof(Spelling)
+                                 };
+                        contextMenu.Items.Insert(itemIndex++, mi);
                     }
-                    // add a separator
-                    tbBase.ContextMenu.Items.Insert(cmdIndex, new Separator());
-                    cmdIndex++;
                 }
-                var ignoreAllMI = new MenuItem();
-                ignoreAllMI.Header = "Ignore All";
-                ignoreAllMI.Command = EditingCommands.IgnoreSpellingError;
-                ignoreAllMI.CommandTarget = tbBase;
-                ignoreAllMI.SetResourceReference(FrameworkElement.StyleProperty, "MetroMenuItem");
-                tbBase.ContextMenu.Items.Insert(cmdIndex, ignoreAllMI);
-                cmdIndex++;
+                else
+                {
+                    contextMenu.Items.Insert(itemIndex++, new MenuItem
+                                                          {
+                                                              Style = contextMenu.TryFindResource(Spelling.NoSuggestionsMenuItemStyleKey) as Style,
+                                                              Tag = typeof(Spelling)
+                                                          });
+                }
+
+                // add a separator
+                contextMenu.Items.Insert(itemIndex++, new Separator
+                                                      {
+                                                          Style = contextMenu.TryFindResource(Spelling.SeparatorStyleKey) as Style,
+                                                          Tag = typeof(Spelling)
+                                                      });
+
+                // ignore all
+                var miIgnoreAll = new MenuItem
+                                  {
+                                      Command = EditingCommands.IgnoreSpellingError,
+                                      CommandTarget = tbBase,
+                                      Style = contextMenu.TryFindResource(Spelling.IgnoreAllMenuItemStyleKey) as Style,
+                                      Tag = typeof(Spelling)
+                                  };
+                contextMenu.Items.Insert(itemIndex++, miIgnoreAll);
+
                 // add another separator
-                var separatorMenuItem2 = new Separator();
-                tbBase.ContextMenu.Items.Insert(cmdIndex, separatorMenuItem2);
+                contextMenu.Items.Insert(itemIndex, new Separator
+                                                    {
+                                                        Style = contextMenu.TryFindResource(Spelling.SeparatorStyleKey) as Style,
+                                                        Tag = typeof(Spelling)
+                                                    });
             }
         }
 
-        // Gets a fresh context menu. 
-        private static ContextMenu GetDefaultTextBoxBaseContextMenu()
+        private static void RemoveSpellCheckMenuItems([CanBeNull] ContextMenu contextMenu)
+        {
+            if (contextMenu != null)
+            {
+                var spellCheckItems = contextMenu.Items.OfType<FrameworkElement>().Where(item => ReferenceEquals(item.Tag, typeof(Spelling))).ToList();
+                foreach (var item in spellCheckItems)
+                {
+                    contextMenu.Items.Remove(item);
+                }
+            }
+        }
+
+        /*private static ContextMenu GetDefaultTextBoxBaseContextMenu()
         {
             var defaultMenu = new ContextMenu();
 
@@ -320,7 +395,7 @@ namespace MahApps.Metro.Controls
             defaultMenu.Items.Add(m3);
 
             return defaultMenu;
-        }
+        }*/
 
         public static void SetIsWaitingForData(DependencyObject obj, bool value)
         {
@@ -357,6 +432,7 @@ namespace MahApps.Metro.Controls
         [AttachedPropertyBrowsableForType(typeof(DatePicker))]
         [AttachedPropertyBrowsableForType(typeof(TimePickerBase))]
         [AttachedPropertyBrowsableForType(typeof(NumericUpDown))]
+        [AttachedPropertyBrowsableForType(typeof(HotKeyBox))]
         public static string GetWatermark(DependencyObject obj)
         {
             return (string)obj.GetValue(WatermarkProperty);
@@ -367,11 +443,104 @@ namespace MahApps.Metro.Controls
             obj.SetValue(WatermarkProperty, value);
         }
 
+        /// <summary>
+        /// Gets a value that indicates the horizontal alignment of the watermark.
+        /// </summary>
+        /// <returns>
+        /// One of the <see cref="System.Windows.TextAlignment" /> values that specifies the desired alignment. The default is <see cref="System.Windows.TextAlignment.Left" />.
+        /// </returns>
+        [Category(AppName.MahApps)]
+        [AttachedPropertyBrowsableForType(typeof(TextBoxBase))]
+        [AttachedPropertyBrowsableForType(typeof(PasswordBox))]
+        [AttachedPropertyBrowsableForType(typeof(ComboBox))]
+        [AttachedPropertyBrowsableForType(typeof(DatePicker))]
+        [AttachedPropertyBrowsableForType(typeof(TimePickerBase))]
+        [AttachedPropertyBrowsableForType(typeof(NumericUpDown))]
+        [AttachedPropertyBrowsableForType(typeof(HotKeyBox))]
+        public static TextAlignment GetWatermarkAlignment(DependencyObject obj)
+        {
+            return (TextAlignment)obj.GetValue(WatermarkAlignmentProperty);
+        }
+
+        /// <summary>
+        /// Sets a value that indicates the horizontal alignment of the watermark.
+        /// </summary>
+        [Category(AppName.MahApps)]
+        [AttachedPropertyBrowsableForType(typeof(TextBoxBase))]
+        [AttachedPropertyBrowsableForType(typeof(PasswordBox))]
+        [AttachedPropertyBrowsableForType(typeof(ComboBox))]
+        [AttachedPropertyBrowsableForType(typeof(DatePicker))]
+        [AttachedPropertyBrowsableForType(typeof(TimePickerBase))]
+        [AttachedPropertyBrowsableForType(typeof(NumericUpDown))]
+        [AttachedPropertyBrowsableForType(typeof(HotKeyBox))]
+        public static void SetWatermarkAlignment(DependencyObject obj, TextAlignment value)
+        {
+            obj.SetValue(WatermarkAlignmentProperty, value);
+        }
+
+        /// <summary>
+        /// Gets the text trimming behavior to employ when watermark overflows the content area.
+        /// </summary>
+        /// <returns>
+        /// One of the <see cref="T:System.Windows.TextTrimming" /> values that specifies the text trimming behavior to employ. The default is <see cref="F:System.Windows.TextTrimming.None" />.
+        /// </returns>
+        [Category(AppName.MahApps)]
+        [AttachedPropertyBrowsableForType(typeof(TextBoxBase))]
+        [AttachedPropertyBrowsableForType(typeof(PasswordBox))]
+        [AttachedPropertyBrowsableForType(typeof(ComboBox))]
+        [AttachedPropertyBrowsableForType(typeof(DatePicker))]
+        [AttachedPropertyBrowsableForType(typeof(TimePickerBase))]
+        [AttachedPropertyBrowsableForType(typeof(NumericUpDown))]
+        [AttachedPropertyBrowsableForType(typeof(HotKeyBox))]
+        public static TextTrimming GetWatermarkTrimming(DependencyObject obj)
+        {
+            return (TextTrimming)obj.GetValue(WatermarkTrimmingProperty);
+        }
+
+        /// <summary>
+        /// Sets the text trimming behavior to employ when watermark overflows the content area.
+        /// </summary>
+        [Category(AppName.MahApps)]
+        [AttachedPropertyBrowsableForType(typeof(TextBoxBase))]
+        [AttachedPropertyBrowsableForType(typeof(PasswordBox))]
+        [AttachedPropertyBrowsableForType(typeof(ComboBox))]
+        [AttachedPropertyBrowsableForType(typeof(DatePicker))]
+        [AttachedPropertyBrowsableForType(typeof(TimePickerBase))]
+        [AttachedPropertyBrowsableForType(typeof(NumericUpDown))]
+        [AttachedPropertyBrowsableForType(typeof(HotKeyBox))]
+        public static void SetWatermarkTrimming(DependencyObject obj, TextTrimming value)
+        {
+            obj.SetValue(WatermarkTrimmingProperty, value);
+        }
+
+        /// <summary>
+        /// Gets how the watermark should wrap text.
+        /// </summary>
+        /// <returns>One of the <see cref="T:System.Windows.TextWrapping" /> values. The default is <see cref="F:System.Windows.TextWrapping.NoWrap" />.
+        /// </returns>
+        [Category(AppName.MahApps)]
+        [AttachedPropertyBrowsableForType(typeof(TextBoxBase))]
+        public static TextWrapping GetWatermarkWrapping(DependencyObject obj)
+        {
+            return (TextWrapping)obj.GetValue(WatermarkWrappingProperty);
+        }
+
+        /// <summary>
+        /// Sets how the watermark should wrap text.
+        /// </summary>
+        [Category(AppName.MahApps)]
+        [AttachedPropertyBrowsableForType(typeof(TextBoxBase))]
+        public static void SetWatermarkWrapping(DependencyObject obj, TextWrapping value)
+        {
+            obj.SetValue(WatermarkWrappingProperty, value);
+        }
+
         [Category(AppName.MahApps)]
         [AttachedPropertyBrowsableForType(typeof(TextBoxBase))]
         [AttachedPropertyBrowsableForType(typeof(PasswordBox))]
         [AttachedPropertyBrowsableForType(typeof(ComboBox))]
         [AttachedPropertyBrowsableForType(typeof(NumericUpDown))]
+        [AttachedPropertyBrowsableForType(typeof(HotKeyBox))]
         public static bool GetUseFloatingWatermark(DependencyObject obj)
         {
             return (bool)obj.GetValue(UseFloatingWatermarkProperty);
@@ -736,18 +905,22 @@ namespace MahApps.Metro.Controls
                 if (parent is TextBox)
                 {
                     ((TextBox)parent).Clear();
+                    ((TextBox)parent).GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
                 }
                 else if (parent is PasswordBox)
                 {
                     ((PasswordBox)parent).Clear();
+                    ((PasswordBox)parent).GetBindingExpression(PasswordBoxBindingBehavior.PasswordProperty)?.UpdateSource();
                 }
                 else if (parent is ComboBox)
                 {
                     if (((ComboBox)parent).IsEditable)
                     {
                         ((ComboBox)parent).Text = string.Empty;
+                        ((ComboBox)parent).GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
                     }
                     ((ComboBox)parent).SelectedItem = null;
+                    ((ComboBox)parent).GetBindingExpression(ComboBox.SelectedItemProperty)?.UpdateSource();
                 }
             }
         }

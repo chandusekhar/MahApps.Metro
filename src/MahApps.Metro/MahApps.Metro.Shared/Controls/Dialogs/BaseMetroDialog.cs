@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Animation;
+using JetBrains.Annotations;
 
 namespace MahApps.Metro.Controls.Dialogs
 {
@@ -88,25 +89,32 @@ namespace MahApps.Metro.Controls.Dialogs
         /// <param name="settings">The settings for the message dialog.</param>
         protected BaseMetroDialog(MetroWindow owningWindow, MetroDialogSettings settings)
         {
-            this.DialogSettings = settings ?? owningWindow.MetroDialogOptions;
-
-            this.OwningWindow = owningWindow;
-
-            this.Initialize();
+            this.Initialize(owningWindow, settings);
         }
 
         /// <summary>
         /// Initializes a new MahApps.Metro.Controls.BaseMetroDialog.
         /// </summary>
         protected BaseMetroDialog()
+            : this(null, new MetroDialogSettings())
         {
-            this.DialogSettings = new MetroDialogSettings();
-
-            this.Initialize();
         }
 
-        private void Initialize()
+        /// <summary>
+        /// With this method it's possible to return your own settings in a custom dialog.
+        /// </summary>
+        /// <param name="settings"></param>
+        /// <returns></returns>
+        protected virtual MetroDialogSettings ConfigureSettings(MetroDialogSettings settings)
         {
+            return settings;
+        }
+
+        private void Initialize([CanBeNull] MetroWindow owningWindow, [CanBeNull] MetroDialogSettings settings)
+        {
+            this.OwningWindow = owningWindow;
+            this.DialogSettings = this.ConfigureSettings(settings ?? (owningWindow?.MetroDialogOptions ?? new MetroDialogSettings()));
+
             if (this.DialogSettings != null && !this.DialogSettings.SuppressDefaultResources)
             {
                 this.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/MahApps.Metro;component/Styles/Controls.xaml") });
@@ -123,24 +131,30 @@ namespace MahApps.Metro.Controls.Dialogs
             this.DialogTitleFontSize = (this.TryFindResource("DialogTitleFontSize") as double?).GetValueOrDefault(this.DialogTitleFontSize);
             this.DialogMessageFontSize = (this.TryFindResource("DialogMessageFontSize") as double?).GetValueOrDefault(this.DialogMessageFontSize);
 
-            this.HandleTheme();
-            this.Loaded += (sender, args) => { this.OnLoaded(); };
-            ThemeManager.IsThemeChanged += this.ThemeManagerIsThemeChanged;
+            this.HandleThemeChange();
+
+            this.Loaded += this.BaseMetroDialogLoaded;
             this.Unloaded += this.BaseMetroDialogUnloaded;
+        }
+
+        private void BaseMetroDialogLoaded(object sender, RoutedEventArgs e)
+        {
+            ThemeManager.IsThemeChanged -= this.ThemeManagerIsThemeChanged;
+            ThemeManager.IsThemeChanged += this.ThemeManagerIsThemeChanged;
+            this.OnLoaded();
         }
 
         private void BaseMetroDialogUnloaded(object sender, RoutedEventArgs e)
         {
             ThemeManager.IsThemeChanged -= this.ThemeManagerIsThemeChanged;
-            this.Unloaded -= this.BaseMetroDialogUnloaded;
         }
 
         private void ThemeManagerIsThemeChanged(object sender, OnThemeChangedEventArgs e)
         {
-            this.HandleTheme();
+            this.HandleThemeChange();
         }
 
-        private void HandleTheme()
+        private void HandleThemeChange()
         {
             if (this.DialogSettings != null)
             {
@@ -200,7 +214,7 @@ namespace MahApps.Metro.Controls.Dialogs
             // nothing here
         }
 
-        private static Tuple<AppTheme, Accent> DetectTheme(DependencyObject dialog)
+        private static Tuple<AppTheme, Accent> DetectTheme(BaseMetroDialog dialog)
         {
             if (dialog == null)
             {
@@ -208,7 +222,7 @@ namespace MahApps.Metro.Controls.Dialogs
             }
 
             // first look for owner
-            var window = dialog.TryFindParent<MetroWindow>();
+            var window = dialog.OwningWindow ?? dialog.TryFindParent<MetroWindow>();
             var theme = window != null ? ThemeManager.DetectAppStyle(window) : null;
             if (theme?.Item2 != null)
             {
